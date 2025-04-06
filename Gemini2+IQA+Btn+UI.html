@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor v21.1 - Intervenção (Stats Fullscreen Color)</title> <!-- Título Atualizado -->
+    <!-- Dependências JS (Inalteradas) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <!-- Font Awesome CDN (Inalterado) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        /* --- Estilos CSS (Base v1 com Modificações anteriores + Stats Fullscreen Color) --- */
+        :root {
+            --primary-color: #0d6efd; --primary-hover-color: #0b5ed7;
+            --secondary-color: #6c757d; --secondary-hover-color: #5a6268;
+            --success-color: #198754; --success-hover-color: #157347;
+            --danger-color: #dc3545; --danger-hover-color: #bb2d3b;
+            --warning-color: #ffc107; --warning-hover-color: #ffca2c;
+            --info-color: #0dcaf0; --info-hover-color: #31d2f2;
+            --light-bg: #f8f9fa; --dark-text: #212529; --medium-text: #6c757d;
+            --border-color: #dee2e6; --card-bg: #ffffff;
+            --screen-bg-main: #eef2f7; --screen-bg-charts: #f4f7fc; --screen-bg-config: #f7f4fc;
+            --border-radius: 0.375rem;
+            --box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1); --box-shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            /* NOVO: Cores para Stats */
+            --stat-min-color: var(--info-color);    /* Azul Ciano */
+            --stat-max-color: var(--danger-color);  /* Vermelho */
+            --stat-avg-color: var(--success-color); /* Verde */
+        }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #ddd; color: var(--dark-text); line-height: 1.5; }
+        .screen { width: 100%; min-height: 100%; position: absolute; top: 0; left: 0; box-sizing: border-box; padding: 25px; overflow: auto; display: none; background-size: cover; background-position: center; background-repeat: no-repeat; transition: background 0.5s ease; position: relative; }
+        #main-screen { display: block; background-color: var(--screen-bg-main); }
+        #chart-screen { background-color: var(--screen-bg-charts); }
+        #config-alarm-screen { background-color: var(--screen-bg-config); }
+
+        /* --- MODIFICADO: Grid de Gráficos e Container (Revertendo achatamento) --- */
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 25px; padding: 20px 0; max-width: 1500px; margin: 0 auto; }
+        .chart-container {
+            background-color: var(--card-bg); border-radius: var(--border-radius);
+            padding: 20px; /* Padding original */
+            box-shadow: var(--box-shadow-sm); border: 1px solid var(--border-color);
+            height: 320px; /* Altura original restaurada */
+            position: relative; cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        .chart-container:hover { transform: translateY(-3px); box-shadow: var(--box-shadow); }
+        .chart-container canvas {
+            /* height: 260px !important; */ /* REMOVIDO: Altura fixa */
+            /* margin-bottom: 10px; */    /* REMOVIDO: Margem extra */
+             /* Altura e largura 100% relativas ao espaço restante após H3 e Stats */
+             flex-grow: 1; /* Permite que o canvas ocupe o espaço restante */
+             width: 100% !important;
+             min-height: 0; /* Necessário para flex-grow funcionar corretamente */
+        }
+        .chart-container h3 { text-align: center; margin-top: 0; margin-bottom: 15px; font-size: 1.05em; color: var(--dark-text); font-weight: 600; flex-shrink: 0; /* Não deixa o título encolher */ }
+        .chart-container .expand-icon { position: absolute; top: 10px; right: 12px; font-size: 1.2em; color: #aaa; cursor: help; z-index: 10; transition: color 0.2s ease; line-height: 1; padding: 2px; pointer-events: none; }
+        .chart-container:hover .expand-icon { color: var(--primary-color); }
+        /* --- FIM REVERSÃO ACHATAMENTO --- */
+
+        /* Estilos para Estatísticas do Gráfico (Main Screen) */
+        .chart-stats {
+            font-size: 0.8em; color: var(--medium-text); text-align: center;
+            padding-top: 5px; margin-top: 5px; /* Espaço acima */
+            border-top: 1px solid #eee;
+            display: flex; justify-content: space-around; flex-wrap: wrap; gap: 5px;
+            flex-shrink: 0; /* Não deixa as stats encolherem */
+        }
+        .chart-stats span { white-space: nowrap; }
+        .chart-stats strong { color: var(--dark-text); font-weight: 600; margin-left: 3px; }
+
+         /* Overlay Fullscreen */
+         #fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.85); z-index: 2000; display: none; padding: 30px; box-sizing: border-box; }
+         #fullscreen-chart-container { width: 100%; height: 100%; background-color: var(--card-bg); border-radius: var(--border-radius); padding: 25px; box-sizing: border-box; position: relative; display: flex; flex-direction: column; }
+         #fullscreen-chart-title { text-align: center; margin-top: 0; margin-bottom: 5px; font-size: 1.4em; color: var(--dark-text); flex-shrink: 0; font-weight: 600; }
+         #fullscreen-chart-container canvas { width: 100% !important; height: 100% !important; flex-grow: 1; min-height: 0; }
+         #close-fullscreen-button { position: absolute; top: 15px; right: 15px; background-color: var(--danger-color); color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 24px; font-weight: bold; line-height: 40px; text-align: center; cursor: pointer; z-index: 2010; box-shadow: var(--box-shadow-sm); display: none; transition: background-color 0.2s ease; }
+         #close-fullscreen-button:hover { background-color: var(--danger-hover-color); }
+
+         /* Estilos para Estatísticas do Gráfico Fullscreen */
+         #fullscreen-chart-stats {
+             font-size: 0.9em; color: var(--medium-text); text-align: center;
+             padding: 5px 0 10px 0; border-bottom: 1px solid #eee; margin-bottom: 15px;
+             display: flex; justify-content: space-around; flex-wrap: wrap; gap: 15px;
+             flex-shrink: 0;
+         }
+         #fullscreen-chart-stats span { white-space: nowrap; }
+         #fullscreen-chart-stats strong { font-weight: 600; margin-left: 4px; }
+         /* NOVO: Aplica cores usando classes */
+         .stat-value-min { color: var(--stat-min-color); }
+         .stat-value-max { color: var(--stat-max-color); }
+         .stat-value-avg { color: var(--stat-avg-color); }
+
+         /* Elementos Arrastáveis (Inalterado) */
+         #main-screen .draggable { position: absolute; cursor: grab; user-select: none; z-index: 100; }
+         #main-screen .dragging { cursor: grabbing; z-index: 1000; opacity: 0.85; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+
+         /* Displays de Dados (Inalterado) */
+         .data-display { background-color: rgba(255, 255, 255, 0.92); border-radius: var(--border-radius); padding: 11px 16px; box-shadow: var(--box-shadow-sm); text-align: center; border: 1px solid var(--border-color); width: 155px; box-sizing: border-box; transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.2s ease; transform-origin: center center; }
+         .data-display .label { display: block; font-size: 0.75em; color: var(--medium-text); margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+         .data-display .value { display: block; font-size: 1.44em; font-weight: bold; color: var(--primary-color); min-height: 1.35em; word-wrap: break-word; line-height: 1.2; }
+         #display-iqa { width: 170px; padding: 13px 18px; border-width: 2px; }
+         #display-iqa .value { font-size: 1.62em; margin-bottom: 6px; }
+         #display-iqa .classification { display: block; font-size: 0.9em; font-weight: 600; margin-top: 4px; min-height: 1.1em; color: var(--dark-text); }
+         #display-iqa.iqa-otima { background-color: #d1e7dd; border-color: var(--success-color); } #display-iqa.iqa-otima .value { color: var(--success-color); }
+         #display-iqa.iqa-boa { background-color: #cff4fc; border-color: var(--info-color); } #display-iqa.iqa-boa .value { color: var(--info-color); }
+         #display-iqa.iqa-aceitavel { background-color: #fff3cd; border-color: #997404; } #display-iqa.iqa-aceitavel .value { color: #997404; }
+         #display-iqa.iqa-ruim { background-color: #f8d7da; border-color: var(--danger-color); } #display-iqa.iqa-ruim .value { color: var(--danger-color); }
+         #display-iqa.iqa-pessima { background-color: var(--danger-color); border-color: #6f1a21; } #display-iqa.iqa-pessima .value, #display-iqa.iqa-pessima .label, #display-iqa.iqa-pessima .classification { color: #fff; }
+         @keyframes blink { 0%, 100% { background-color: rgba(255, 255, 255, 0.92); border-color: var(--border-color); transform: scale(1); } 50% { background-color: rgba(255, 180, 180, 0.9); border-color: var(--danger-color); transform: scale(1.05); } }
+         .data-display.blinking { animation: blink 1s infinite ease-in-out; }
+         #display-microorganismos .value { font-size: 1.26em; font-weight: bold; color: var(--medium-text); }
+         #microorganismos-value.presente { color: var(--danger-color); }
+         #microorganismos-value.ausente { color: var(--success-color); }
+         #confidence-bars-wrapper { display: flex; flex-direction: column; gap: 8px; background-color: rgba(255, 255, 255, 0.85); padding: 13px 18px; border-radius: var(--border-radius); width: 250px; box-sizing: border-box; border: 1px solid var(--border-color); box-shadow: var(--box-shadow-sm); z-index: 105; }
+         .confidence-title { font-size: 0.85em; font-weight: 600; color: var(--dark-text); margin: 0 0 8px 0; text-align: center; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+         .confidence-bar-container .label { display: none; }
+         .confidence-bar { width: 100%; height: 20px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; border: 1px solid #ced4da; }
+         .confidence-bar-inner { height: 100%; width: 0%; background-color: var(--info-color); border-radius: 3px; transition: width 0.3s ease-out; display: flex; align-items: center; justify-content: flex-end; padding-right: 5px; box-sizing: border-box; overflow: hidden; }
+         .confidence-percent { font-size: 0.75em; color: white; white-space: nowrap; font-weight: 500;}
+         #webcam { display: block; width: 270px; height: 270px; border-radius: 50%; object-fit: cover; transform: scaleX(-1); background-color: #333; border: 4px solid rgba(255, 255, 255, 0.85); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); transition: width 0.3s ease, height 0.3s ease; }
+
+         /* Grupo de Controles (Inalterado) */
+         #controls-group { display: flex; flex-direction: column; gap: 8px; background-color: rgba(248, 249, 250, 0.85); padding: 13px; border-radius: var(--border-radius); z-index: 110; border: 1px solid var(--border-color); box-shadow: var(--box-shadow-sm); }
+         #controls-group button, #controls-group label { padding: 9px 13px; font-size: 0.85em; cursor: pointer; border: none; border-radius: var(--border-radius); color: white; box-shadow: var(--box-shadow-sm); transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease; text-align: center; display: flex; align-items: center; justify-content: center; width: 100%; box-sizing: border-box; }
+         #controls-group button:hover, #controls-group label:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+         #controls-group button:active, #controls-group label:active { transform: translateY(0px); box-shadow: var(--box-shadow-sm); }
+         #controls-group button#toggleWebcam { background-color: var(--success-color); }
+         #controls-group button#toggleWebcam:hover { background-color: var(--success-hover-color); }
+         #controls-group button#toggleWebcam.webcam-active { background-color: var(--danger-color); }
+         #controls-group button#toggleWebcam.webcam-active:hover { background-color: var(--danger-hover-color); }
+         #controls-group button#connectSerialButton { background-color: var(--primary-color); }
+         #controls-group button#connectSerialButton:hover { background-color: var(--primary-hover-color); }
+         #controls-group button#connectSerialButton.connected { background-color: var(--danger-color); }
+         #controls-group button#connectSerialButton.connected:hover { background-color: var(--danger-hover-color); }
+         #controls-group button#connectSerialButton:disabled { background-color: var(--secondary-color); opacity: 0.7; cursor: not-allowed; }
+         #controls-group button#toggleDragMode { background-color: var(--secondary-color); }
+         #controls-group button#toggleDragMode:hover { background-color: var(--secondary-hover-color); }
+         #controls-group button#toggleDragMode.active { background-color: var(--warning-color); color: var(--dark-text); }
+         #controls-group button#toggleDragMode.active:hover { background-color: var(--warning-hover-color); }
+         #controls-group button#goToChartsButton { background-color: #6f42c1; }
+         #controls-group button#goToChartsButton:hover { background-color: #5a359e; }
+         #controls-group button#goToConfigButton { background-color: var(--info-color); }
+         #controls-group button#goToConfigButton:hover { background-color: var(--info-hover-color); }
+         .size-controls { display: flex; gap: 6px; }
+         .size-controls button { width: 36px; padding: 7px 0; font-size: 1.0em; font-weight: bold; line-height: 1; background-color: var(--secondary-color); }
+         .size-controls button:hover { background-color: var(--secondary-hover-color); }
+         #controls-group button#generatePdfButton { background-color: #6f42c1; }
+         #controls-group button#generatePdfButton:hover { background-color: #5a359e; }
+         #controls-group button#generatePdfButton.generating { cursor: wait; background-color: var(--warning-color); color: var(--dark-text); }
+         #controls-group button#saveExcelButton { background-color: var(--success-color); }
+         #controls-group button#saveExcelButton:hover { background-color: var(--success-hover-color); }
+         #controls-group button#saveExcelButton.saving { cursor: wait; background-color: var(--warning-color); color: var(--dark-text); }
+         #controls-group button#interventionButton { background-color: #FF8C00; }
+         #controls-group button#interventionButton:hover { background-color: #E07B00; }
+         #controls-group button#interventionButton.intervention-active { background-color: var(--danger-color); }
+         #controls-group button#interventionButton.intervention-active:hover { background-color: var(--danger-hover-color); }
+
+        /* Tela de Configuração e Alarme (Inalterada) */
+        #config-alarm-screen { padding: 35px; position: relative; }
+        #config-alarm-screen h2 { text-align: center; margin-top: 0; margin-bottom: 35px; color: var(--dark-text); font-weight: 600; font-size: 1.6em; }
+        .config-section, .alarm-log-section, .model-section, .appearance-section { background-color: var(--card-bg); padding: 25px 30px; border-radius: var(--border-radius); box-shadow: var(--box-shadow-sm); margin-bottom: 35px; border: 1px solid var(--border-color); }
+        .config-section h3, .alarm-log-section h3, .model-section h3, .appearance-section h3 { margin-top: 0; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; color: var(--primary-color); font-weight: 600; font-size: 1.2em; }
+        .model-loader-ui { margin-bottom: 20px; }
+        .model-loader-ui label { font-weight: bold; margin-right: 10px; color: var(--dark-text);}
+        #modelStatus { margin-top: 8px; font-style: italic; color: var(--medium-text); font-size: 0.95em;}
+        .threshold-config { margin-top: 20px; padding-top: 20px; border-top: 1px dashed var(--border-color); }
+        .threshold-config label { font-weight: bold; margin-right: 10px; color: var(--dark-text);}
+        .threshold-config input[type="number"] { width: 70px; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; margin-right: 8px; text-align: center; }
+        .threshold-config button { padding: 6px 12px; font-size: 0.9em; background-color: var(--primary-color); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; transition: background-color 0.2s ease; vertical-align: middle; }
+        .threshold-config button:hover { background-color: var(--primary-hover-color); }
+        .config-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        .config-table th, .config-table td { padding: 12px 10px; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+        .config-table th { font-weight: 600; color: var(--dark-text); width: 30%; font-size: 0.95em;}
+        .config-table td { font-size: 0.95em; }
+        .config-table input[type="number"] { width: 110px; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.95em; }
+        .config-table input[type="number"]:focus { border-color: var(--primary-color); outline: none; box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25); }
+        .config-section .button-container { text-align: center; margin-top: 25px; }
+        #saveAlarmSettingsButton { padding: 12px 30px; font-size: 1em; background-color: var(--success-color); border: none; color: white; border-radius: var(--border-radius); cursor: pointer; transition: background-color 0.2s ease, transform 0.1s ease; }
+        #saveAlarmSettingsButton:hover { background-color: var(--success-hover-color); transform: translateY(-2px);}
+        #saveAlarmSettingsButton:active { transform: translateY(0); }
+        .alarm-log-section .log-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        #clearAlarmsButton { padding: 6px 12px; font-size: 0.9em; background-color: var(--danger-color); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; transition: background-color 0.2s ease; }
+        #clearAlarmsButton:hover { background-color: var(--danger-hover-color); }
+        #alarmLogContainer { max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); padding: 20px; background-color: var(--light-bg); border-radius: 5px; font-size: 0.9em; line-height: 1.6; }
+        #alarmLogContainer p { margin: 0 0 10px 0; padding-bottom: 10px; border-bottom: 1px dotted #ddd; }
+        #alarmLogContainer p:last-child { border-bottom: none; margin-bottom: 0; }
+        #alarmLogContainer .alarm-message { color: var(--danger-color); font-weight: bold; }
+        .back-button { position: absolute; top: 25px; left: 25px; z-index: 1100; padding: 10px 15px; font-size: 0.95em; cursor: pointer; border: none; border-radius: var(--border-radius); background-color: var(--secondary-color); color: white; box-shadow: var(--box-shadow-sm); transition: background-color 0.2s ease, transform 0.1s ease; display: inline-flex; align-items: center; }
+        .back-button:hover { background-color: var(--secondary-hover-color); transform: translateY(-1px); }
+        #fullscreen-controls { display: none; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: center; padding: 15px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; flex-shrink: 0; }
+        #fullscreen-controls label { font-size: 0.95em; margin-right: 5px; font-weight: 500;}
+        #fullscreen-controls input[type="datetime-local"] { font-size: 0.95em; padding: 8px 10px; border: 1px solid #ced4da; border-radius: 4px; }
+        #fullscreen-controls button { padding: 8px 15px; font-size: 0.95em; background-color: var(--primary-color); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; transition: background-color 0.2s ease; }
+        #fullscreen-controls button:hover { background-color: var(--primary-hover-color); }
+        #fullscreen-overlay.show-controls #fullscreen-controls { display: flex; }
+        .appearance-section { }
+        .appearance-section .bg-menus-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .bg-menu-instance { background-color: rgba(255, 255, 255, 0.95); padding: 15px; border-radius: var(--border-radius); box-shadow: var(--box-shadow-sm); width: 200px; box-sizing: border-box; border: 1px solid var(--border-color); }
+        .bg-menu-instance .bgMenuTitle { margin: 0 0 10px 0; font-size: 0.9em; font-weight: 600; text-align: center; cursor: pointer; padding: 8px 5px; border-bottom: 1px solid #eee; margin-bottom: 12px; color: var(--dark-text); }
+        .bg-menu-instance .bgMenuTitle::after { content: ' ▼'; font-size: 0.8em; }
+        .bg-menu-instance.collapsed .bgMenuTitle::after { content: ' ▶'; }
+        .bg-menu-instance .color-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(20px, 1fr)); gap: 8px; margin-bottom: 15px; transition: max-height 0.3s ease-out, opacity 0.3s ease-out, margin-bottom 0.3s ease-out; max-height: 300px; opacity: 1; overflow: hidden; padding: 0 5px; }
+        .bg-menu-instance.collapsed .color-options { max-height: 0; opacity: 0; margin-bottom: 0; }
+        .bg-menu-instance .color-swatch { width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: 1px solid #ccc; transition: transform 0.15s ease, border-color 0.15s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.1); justify-self: center; }
+        .bg-menu-instance .color-swatch:hover { transform: scale(1.2); border-color: var(--primary-color); }
+        .bg-menu-instance .upload-button-wrapper { transition: max-height 0.3s ease-out, opacity 0.3s ease-out; max-height: 100px; opacity: 1; overflow: hidden; margin-top: 10px; }
+        .bg-menu-instance.collapsed .upload-button-wrapper { max-height: 0; opacity: 0; margin-top: 0;}
+        .bg-menu-instance .upload-button { display: flex; align-items: center; justify-content: center; background-color: var(--success-color); color: white; padding: 8px 10px; border-radius: var(--border-radius); text-align: center; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s ease; }
+        .bg-menu-instance .upload-button:hover { background-color: var(--success-hover-color); }
+        .bg-menu-instance input[type="file"] { display: none; }
+        #controls-group button i, .upload-button i, .back-button i { margin-right: 6px; vertical-align: middle; }
+        .size-controls button i { margin-right: 0; }
+        #close-fullscreen-button i { margin-right: 0; }
+
+    </style>
+</head>
+<body>
+
+    <!-- TELA PRINCIPAL (MONITOR) (Inalterada) -->
+    <div id="main-screen" class="screen">
+        <div id="controls-group" class="draggable">
+            <button id="toggleWebcam"><i class="fas fa-video"></i>Ligar Webcam</button>
+            <button id="connectSerialButton"><i class="fas fa-plug-circle-bolt"></i>Conectar Serial</button>
+            <div class="size-controls">
+                <button id="increaseSize" title="Aumentar Diâmetro"><i class="fas fa-plus"></i></button>
+                <button id="decreaseSize" title="Diminuir Diâmetro"><i class="fas fa-minus"></i></button>
+            </div>
+            <button id="toggleDragMode"><i class="fas fa-arrows-up-down-left-right"></i>Habilitar Mover</button>
+            <button id="goToChartsButton" class="nav-button"><i class="fas fa-chart-line"></i>Ver Gráficos</button>
+            <button id="goToConfigButton" class="nav-button"><i class="fas fa-gear"></i>Config/Alarmes</button>
+            <button id="generatePdfButton"><i class="fas fa-file-pdf"></i>Gerar PDF</button>
+            <button id="saveExcelButton"><i class="fas fa-file-csv"></i>Salvar CSV</button>
+            <button id="interventionButton"><i class="fas fa-power-off"></i> Intervenção</button>
+        </div>
+        <div id="webcam-wrapper" class="draggable"> <video id="webcam" autoplay playsinline muted></video> </div>
+        <div id="display-oxigenio" class="data-display draggable"><span class="label">Oxig. Dissolvido</span><span class="value" id="oxigenio-value">--</span></div>
+        <div id="display-ph" class="data-display draggable"><span class="label">pH</span><span class="value" id="ph-value">--</span></div>
+        <div id="display-turbidez" class="data-display draggable"><span class="label">Turbidez</span><span class="value" id="turbidez-value">--</span></div>
+        <div id="display-temperatura" class="data-display draggable"><span class="label">Temperatura</span><span class="value" id="temperatura-value">--</span></div>
+        <div id="display-tds" class="data-display draggable"><span class="label">TDS</span><span class="value" id="tds-value">--</span></div>
+        <div id="display-condutividade" class="data-display draggable"><span class="label">Condutividade</span><span class="value" id="condutividade-value">--</span></div>
+        <div id="display-dbo" class="data-display draggable"><span class="label">DBO</span><span class="value" id="dbo-value">--</span></div>
+        <div id="display-microorganismos" class="data-display draggable"><span class="label">Microorganismos</span><span class="value" id="microorganismos-value">--</span></div>
+        <div id="display-iqa" class="data-display draggable"> <span class="label">IQA</span> <span class="value" id="iqa-value">--</span> <span class="classification" id="iqa-classification">--</span> </div>
+        <div id="confidence-bars-wrapper" class="draggable"> <p class="confidence-title">Confiança Detecção</p> <div class="confidence-bar-container"> <div class="confidence-bar"> <div class="confidence-bar-inner" id="confidence-bar-inner-1"> <span class="confidence-percent">0%</span> </div> </div> </div> </div>
+    </div>
+
+    <!-- TELA DE GRÁFICOS (Inalterada - HTML já contém os spans) -->
+    <div id="chart-screen" class="screen">
+        <button class="back-button" id="goToMainButtonCharts"><i class="fas fa-arrow-left"></i>Monitor</button>
+        <h2 style="text-align: center; margin-top: 10px; margin-bottom: 25px; font-weight: 600; font-size: 1.5em;">Histórico de Variáveis (Últimos 5 minutos)</h2>
+        <div class="charts-grid">
+             <div class="chart-container" data-chart-key="ph" title="Duplo clique para expandir"><h3>pH</h3><canvas id="phChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="ph-min-stat">--</strong></span><span>Max: <strong id="ph-max-stat">--</strong></span><span>Média: <strong id="ph-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="temp" title="Duplo clique para expandir"><h3>Temperatura (°C)</h3><canvas id="tempChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="temp-min-stat">--</strong></span><span>Max: <strong id="temp-max-stat">--</strong></span><span>Média: <strong id="temp-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="turbidez" title="Duplo clique para expandir"><h3>Turbidez</h3><canvas id="turbidezChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="turbidez-min-stat">--</strong></span><span>Max: <strong id="turbidez-max-stat">--</strong></span><span>Média: <strong id="turbidez-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="oxigenio" title="Duplo clique para expandir"><h3>Oxigênio Dissolvido (mg/L)</h3><canvas id="oxigenioChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="oxigenio-min-stat">--</strong></span><span>Max: <strong id="oxigenio-max-stat">--</strong></span><span>Média: <strong id="oxigenio-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="tds" title="Duplo clique para expandir"><h3>TDS (ppm)</h3><canvas id="tdsChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="tds-min-stat">--</strong></span><span>Max: <strong id="tds-max-stat">--</strong></span><span>Média: <strong id="tds-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="condutividade" title="Duplo clique para expandir"><h3>Condutividade (µS/cm)</h3><canvas id="condutividadeChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="condutividade-min-stat">--</strong></span><span>Max: <strong id="condutividade-max-stat">--</strong></span><span>Média: <strong id="condutividade-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="dbo" title="Duplo clique para expandir"><h3>DBO (mg/L)</h3><canvas id="dboChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="dbo-min-stat">--</strong></span><span>Max: <strong id="dbo-max-stat">--</strong></span><span>Média: <strong id="dbo-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+             <div class="chart-container" data-chart-key="iqa" title="Duplo clique para expandir"><h3>IQA</h3><canvas id="iqaChartCanvas"></canvas><div class="chart-stats"><span>Min: <strong id="iqa-min-stat">--</strong></span><span>Max: <strong id="iqa-max-stat">--</strong></span><span>Média: <strong id="iqa-avg-stat">--</strong></span></div><span class="expand-icon" title="Duplo clique para expandir">🔎</span></div>
+         </div>
+     </div>
+
+    <!-- TELA DE CONFIGURAÇÃO E ALARME (Inalterada) -->
+    <div id="config-alarm-screen" class="screen">
+        <button class="back-button" id="goToMainButtonConfig"><i class="fas fa-arrow-left"></i>Monitor</button>
+        <h2>Configurações e Diagnósticos</h2>
+        <div class="config-section"><h3><i class="fas fa-sliders-h"></i> Limites de Normalidade (Alarmes)</h3><table class="config-table"><thead> <tr> <th>Variável</th> <th>Valor Mínimo</th> <th>Valor Máximo</th> </tr> </thead><tbody><tr> <td>pH</td> <td><input type="number" step="0.1" id="ph-min-input" placeholder="Opcional"></td> <td><input type="number" step="0.1" id="ph-max-input" placeholder="Opcional"></td> </tr><tr> <td>Temperatura (°C)</td> <td><input type="number" step="0.1" id="temp-min-input" placeholder="Opcional"></td> <td><input type="number" step="0.1" id="temp-max-input" placeholder="Opcional"></td> </tr><tr> <td>Turbidez</td> <td><input type="number" step="1" id="turbidez-min-input" placeholder="Opcional"></td> <td><input type="number" step="1" id="turbidez-max-input" placeholder="Opcional"></td> </tr><tr> <td>Oxig. Dissolvido (mg/L)</td> <td><input type="number" step="0.1" id="oxigenio-min-input" placeholder="Opcional"></td> <td><input type="number" step="0.1" id="oxigenio-max-input" placeholder="Opcional"></td> </tr><tr> <td>TDS (ppm)</td> <td><input type="number" step="1" id="tds-min-input" placeholder="Opcional"></td> <td><input type="number" step="1" id="tds-max-input" placeholder="Opcional"></td> </tr><tr> <td>Condutividade (µS/cm)</td> <td><input type="number" step="1" id="condutividade-min-input" placeholder="Opcional"></td> <td><input type="number" step="1" id="condutividade-max-input" placeholder="Opcional"></td> </tr><tr> <td>DBO (mg/L)</td> <td><input type="number" step="0.1" id="dbo-min-input" placeholder="Opcional"></td> <td><input type="number" step="0.1" id="dbo-max-input" placeholder="Opcional"></td> </tr><tr> <td>IQA</td> <td><input type="number" step="1" id="iqa-min-input" placeholder="Opcional"></td> <td><input type="number" step="1" id="iqa-max-input" placeholder="Opcional"></td> </tr></tbody></table><div class="button-container"> <button id="saveAlarmSettingsButton"><i class="fas fa-save"></i>Salvar Limites</button> </div></div>
+        <div class="model-section"><h3><i class="fas fa-brain"></i> Modelo IA (Microorganismos)</h3><div class="model-loader-ui"><label>URL do Modelo:</label> <code id="model-url-display" style="font-size: 0.9em; background-color: #eee; padding: 2px 5px; border-radius: 3px;"></code><p id="modelStatus">Modelo: Carregando...</p></div><div class="threshold-config"><label for="confidenceThresholdInput">Confiança Mínima p/ Presença (%):</label><input type="number" id="confidenceThresholdInput" min="1" max="100" step="1" value="70"><button id="saveThresholdButton"><i class="fas fa-check-circle"></i>Aplicar</button></div></div>
+        <div class="alarm-log-section"><div class="log-controls"><h3><i class="fas fa-history"></i> Log de Alarmes</h3><button id="clearAlarmsButton"><i class="fas fa-eraser"></i>Limpar Log</button></div><div id="alarmLogContainer"> <p>Carregando log...</p> </div></div>
+        <div class="appearance-section"><h3><i class="fas fa-palette"></i> Aparência das Telas</h3><div class="bg-menus-container"><div id="bg-menu-main" class="bg-menu-instance"><p class="bgMenuTitle">Fundo Tela Principal</p><div class="color-options" id="colorOptionsContainer-main"></div><div class="upload-button-wrapper"><label for="bgImageUpload-main" class="upload-button"><i class="fas fa-upload"></i>Upload Imagem</label><input type="file" id="bgImageUpload-main" accept="image/*"></div></div><div id="bg-menu-charts" class="bg-menu-instance"><p class="bgMenuTitle">Fundo Tela Gráficos</p><div class="color-options" id="colorOptionsContainer-charts"></div><div class="upload-button-wrapper"><label for="bgImageUpload-charts" class="upload-button"><i class="fas fa-upload"></i>Upload Imagem</label><input type="file" id="bgImageUpload-charts" accept="image/*"></div></div><div id="bg-menu-config" class="bg-menu-instance"><p class="bgMenuTitle">Fundo Tela Config</p><div class="color-options" id="colorOptionsContainer-config"></div><div class="upload-button-wrapper"><label for="bgImageUpload-config" class="upload-button"><i class="fas fa-upload"></i>Upload Imagem</label><input type="file" id="bgImageUpload-config" accept="image/*"></div></div></div></div>
+     </div>
+
+    <!-- Overlay para Gráfico Expandido (MODIFICADO: Adicionadas classes aos strongs) -->
+    <div id="fullscreen-overlay">
+        <div id="fullscreen-chart-container">
+            <h3 id="fullscreen-chart-title"></h3>
+            <div id="fullscreen-chart-stats" class="chart-stats fs-stats">
+                 <span>Min: <strong id="fs-min-stat" class="stat-value-min">--</strong></span>
+                 <span>Max: <strong id="fs-max-stat" class="stat-value-max">--</strong></span>
+                 <span>Média: <strong id="fs-avg-stat" class="stat-value-avg">--</strong></span>
+            </div>
+            <div id="fullscreen-controls">
+                <label for="dateStart">Início:</label>
+                <input type="datetime-local" id="dateStart" name="dateStart">
+                <label for="dateEnd">Fim:</label>
+                <input type="datetime-local" id="dateEnd" name="dateEnd">
+                <button id="applyDateRange"><i class="fas fa-filter"></i>Aplicar Filtro</button>
+            </div>
+            <!-- Canvas será adicionado aqui via JS -->
+        </div>
+        <button id="close-fullscreen-button">×</button>
+    </div>
+
+    <script>
+        // JavaScript (Base v1 + Modificações anteriores + Stats Fullscreen Color)
+        console.log("jsPDF library status:", typeof window.jspdf);
+        console.log("Teachable Machine Image Library (tmImage):", typeof tmImage);
+        console.log("Chart.js Date Adapter:", typeof Chart._adapters._date);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Elementos do DOM (Adicionadas refs para stats do fullscreen) ---
+            const mainScreen = document.getElementById('main-screen');
+            const chartScreen = document.getElementById('chart-screen');
+            const configAlarmScreen = document.getElementById('config-alarm-screen');
+            const screens = { main: mainScreen, charts: chartScreen, config: configAlarmScreen };
+            const goToChartsButton = document.getElementById('goToChartsButton');
+            const goToConfigButton = document.getElementById('goToConfigButton');
+            const goToMainButtonCharts = document.getElementById('goToMainButtonCharts');
+            const goToMainButtonConfig = document.getElementById('goToMainButtonConfig');
+            const videoElement = document.getElementById('webcam');
+            const toggleWebcamButton = document.getElementById('toggleWebcam');
+            const increaseSizeButton = document.getElementById('increaseSize');
+            const decreaseSizeButton = document.getElementById('decreaseSize');
+            const connectSerialButton = document.getElementById('connectSerialButton');
+            const toggleDragModeButton = document.getElementById('toggleDragMode');
+            const alarmLogContainer = document.getElementById('alarmLogContainer');
+            const saveAlarmSettingsButton = document.getElementById('saveAlarmSettingsButton');
+            const clearAlarmsButton = document.getElementById('clearAlarmsButton');
+            const fullscreenOverlay = document.getElementById('fullscreen-overlay');
+            const fullscreenChartContainer = document.getElementById('fullscreen-chart-container');
+            const fullscreenChartTitle = document.getElementById('fullscreen-chart-title');
+            const closeFullscreenButton = document.getElementById('close-fullscreen-button');
+            const modelStatus = document.getElementById('modelStatus');
+            const microorganismsValueSpan = document.getElementById('microorganismos-value');
+            const modelUrlDisplay = document.getElementById('model-url-display');
+            const confidenceBarInner1 = document.getElementById('confidence-bar-inner-1');
+            const confidencePercent1 = confidenceBarInner1?.querySelector('.confidence-percent');
+            const confidenceThresholdInput = document.getElementById('confidenceThresholdInput');
+            const saveThresholdButton = document.getElementById('saveThresholdButton');
+            const generatePdfButton = document.getElementById('generatePdfButton');
+            const saveExcelButton = document.getElementById('saveExcelButton');
+            const fullscreenControlsDiv = document.getElementById('fullscreen-controls');
+            const dateStartInput = document.getElementById('dateStart');
+            const dateEndInput = document.getElementById('dateEnd');
+            let applyDateRangeButton = document.getElementById('applyDateRange');
+            const displayIQA = document.getElementById('display-iqa');
+            const iqaValueSpan = document.getElementById('iqa-value');
+            const iqaClassificationSpan = document.getElementById('iqa-classification');
+            const interventionButton = document.getElementById('interventionButton');
+            // NOVO: Refs para stats do fullscreen
+            const fsMinStat = document.getElementById('fs-min-stat');
+            const fsMaxStat = document.getElementById('fs-max-stat');
+            const fsAvgStat = document.getElementById('fs-avg-stat');
+
+
+            // --- Mapeamentos e Variáveis de Estado (Inalterados) ---
+            const displayElements = { ph: document.getElementById('display-ph'), temp: document.getElementById('display-temperatura'), turbidez: document.getElementById('display-turbidez'), oxigenio: document.getElementById('display-oxigenio'), tds: document.getElementById('display-tds'), condutividade: document.getElementById('display-condutividade'), dbo: document.getElementById('display-dbo'), microorganismos: document.getElementById('display-microorganismos'), iqa: displayIQA };
+            const valueSpans = { ph: document.getElementById('ph-value'), temp: document.getElementById('temperatura-value'), turbidez: document.getElementById('turbidez-value'), oxigenio: document.getElementById('oxigenio-value'), tds: document.getElementById('tds-value'), condutividade: document.getElementById('condutividade-value'), dbo: document.getElementById('dbo-value'), microorganismos: microorganismsValueSpan, iqa: iqaValueSpan };
+            const configInputs = { ph: { min: document.getElementById('ph-min-input'), max: document.getElementById('ph-max-input') }, temp: { min: document.getElementById('temp-min-input'), max: document.getElementById('temp-max-input') }, turbidez: { min: document.getElementById('turbidez-min-input'), max: document.getElementById('turbidez-max-input') }, oxigenio: { min: document.getElementById('oxigenio-min-input'), max: document.getElementById('oxigenio-max-input') }, tds: { min: document.getElementById('tds-min-input'), max: document.getElementById('tds-max-input') }, condutividade: { min: document.getElementById('condutividade-min-input'), max: document.getElementById('condutividade-max-input') }, dbo: { min: document.getElementById('dbo-min-input'), max: document.getElementById('dbo-max-input') }, iqa: {min: document.getElementById('iqa-min-input'), max: document.getElementById('iqa-max-input')} };
+            let currentStream = null; let currentDiameter = 270; const sizeStep = 25; const minSize = 50; const maxSize = 1200;
+            let port; let reader; let keepReading = false; let lineBuffer = '';
+            let isDragModeEnabled = false; let draggedElement = null; let offsetX = 0; let offsetY = 0;
+            let alarmSettings = {}; let alarmStates = { microorganismos: false, iqa: false };
+            let alarmLogMessages = []; let screenBackgrounds = {};
+            let expandedChartInfo = { chartKey: null };
+            let model = null; let tmWebcam = null; let isPredicting = false; let predictionAnimationId = null;
+            const DEFAULT_CONFIDENCE_THRESHOLD = 0.70; let classificationThreshold = DEFAULT_CONFIDENCE_THRESHOLD;
+            const MODEL_URL = "https://teachablemachine.withgoogle.com/models/_H5NjtuTH/";
+            if (modelUrlDisplay) modelUrlDisplay.textContent = MODEL_URL;
+            const HISTORICAL_DATA_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+            let historicalDataStore = { ph: [], temp: [], turbidez: [], oxigenio: [], tds: [], condutividade: [], dbo: [], iqa: [] };
+            let isInterventionActive = false;
+            const defaultPositions = { "controls-group": { top: "20px", left: "20px" }, "webcam-wrapper": { top: "40px", left: "calc(50% - 135px)" }, "display-oxigenio": { top: "80px", left: "calc(50% - 350px)" }, "display-ph": { top: "150px", left: "calc(50% - 350px)" }, "display-turbidez": { top: "220px", left: "calc(50% - 350px)" }, "display-temperatura": { top: "290px", left: "calc(50% - 350px)" }, "display-tds": { top: "80px", left: "calc(50% + 190px)" }, "display-condutividade": { top: "150px", left: "calc(50% + 190px)" }, "display-dbo": { top: "220px", left: "calc(50% + 190px)" }, "display-microorganismos": { top: "290px", left: "calc(50% + 190px)" }, "confidence-bars-wrapper": { top: "370px", left: "calc(50% + 140px)" }, "display-iqa": { top: "340px", left: "calc(50% - 85px)" }, };
+            const ARDUINO_EXPECTED_DELAY_MS = 5000;
+            const FIVE_MINUTES_MS = 5 * 60 * 1000;
+            const MAX_DATA_POINTS_VIEW = Math.ceil(FIVE_MINUTES_MS / ARDUINO_EXPECTED_DELAY_MS);
+            const chartContexts = { ph: document.getElementById('phChartCanvas')?.getContext('2d'), temp: document.getElementById('tempChartCanvas')?.getContext('2d'), turbidez: document.getElementById('turbidezChartCanvas')?.getContext('2d'), oxigenio: document.getElementById('oxigenioChartCanvas')?.getContext('2d'), tds: document.getElementById('tdsChartCanvas')?.getContext('2d'), condutividade: document.getElementById('condutividadeChartCanvas')?.getContext('2d'), dbo: document.getElementById('dboChartCanvas')?.getContext('2d'), iqa: document.getElementById('iqaChartCanvas')?.getContext('2d') };
+            const charts = {};
+            let expandedChartInstance = null;
+            const chartStatElements = {};
+            Object.keys(chartContexts).forEach(key => { chartStatElements[key] = { min: document.getElementById(`${key}-min-stat`), max: document.getElementById(`${key}-max-stat`), avg: document.getElementById(`${key}-avg-stat`), }; });
+
+
+            // --- Funções ---
+
+            // Funções Teachable Machine (Inalteradas)
+            async function loadModel() { if (typeof tmImage === 'undefined') { console.error("TM lib não carregada!"); modelStatus.textContent = 'Modelo: Erro lib TM'; return false; } const modelURL = MODEL_URL + "model.json"; const metadataURL = MODEL_URL + "metadata.json"; modelStatus.textContent = 'Modelo: Carregando...'; console.log(`Carregando modelo TM de: ${modelURL}`); try { stopPredictionLoop(); model = null; model = await tmImage.load(modelURL, metadataURL); modelStatus.textContent = 'Modelo: Carregado!'; console.log("Modelo TM carregado!", model); if (currentStream && tmWebcam && !isPredicting) { startPredictionLoop(); } return true; } catch (error) { console.error("Erro ao carregar modelo TM:", error); modelStatus.textContent = 'Modelo: Erro ao carregar'; alert(`Erro: ${error.message}`); model = null; stopPredictionLoop(); return false; } }
+            async function predictionLoop() { if (!isPredicting || !model || !tmWebcam || !tmWebcam.canvas || tmWebcam.webcam?.paused || tmWebcam.webcam?.ended ) { stopPredictionLoop(); return; } if (videoElement.readyState < videoElement.HAVE_CURRENT_DATA) { predictionAnimationId = requestAnimationFrame(predictionLoop); return; } try { tmWebcam.update(); const predictions = await model.predict(tmWebcam.canvas); let probClass0 = 0, probClass1 = 0; const classNameAusencia = "Ausencia de microorganismos"; const classNamePresenca = "Microorganismos"; for (const prediction of predictions) { if (prediction.className === classNameAusencia) { probClass0 = prediction.probability; } else if (prediction.className === classNamePresenca) { probClass1 = prediction.probability; } } let isPresente = probClass1 >= classificationThreshold; const resultText = isPresente ? "SIM" : "NÃO"; if (microorganismsValueSpan) { microorganismsValueSpan.textContent = resultText; microorganismsValueSpan.classList.toggle('presente', isPresente); microorganismsValueSpan.classList.toggle('ausente', !isPresente); } const percent1 = (probClass1 * 100).toFixed(0); if (confidenceBarInner1 && confidencePercent1) { confidenceBarInner1.style.width = `${percent1}%`; confidencePercent1.textContent = `${percent1}%`; } const displayDivMicroorg = displayElements['microorganismos']; if (displayDivMicroorg) { if (isPresente) { if (!alarmStates['microorganismos']) { logAlarm('microorganismos', probClass1, classificationThreshold, null); alarmStates['microorganismos'] = true; } displayDivMicroorg.classList.add('blinking'); } else { if (alarmStates['microorganismos']) { alarmStates['microorganismos'] = false; displayDivMicroorg.classList.remove('blinking'); } } } } catch (err) { console.error("Erro durante predição TM:", err); stopPredictionLoop(); if(microorganismsValueSpan) microorganismsValueSpan.textContent = "Erro"; return; } if (isPredicting) predictionAnimationId = requestAnimationFrame(predictionLoop); }
+            function startPredictionLoop() { if (isPredicting || !model || !currentStream || !tmWebcam || !tmWebcam.canvas) { console.log(`Não iniciando loop: isPredicting=${isPredicting}, model=${!!model}, currentStream=${!!currentStream}, tmWebcam=${!!tmWebcam}`); return; } isPredicting = true; console.log("Iniciando loop predição ML..."); if(microorganismsValueSpan) microorganismsValueSpan.textContent = "Analisando..."; if(predictionAnimationId) cancelAnimationFrame(predictionAnimationId); predictionAnimationId = requestAnimationFrame(predictionLoop); }
+            function stopPredictionLoop() { if(!isPredicting && !predictionAnimationId) return; console.log("Parando loop predição ML."); isPredicting = false; if(predictionAnimationId) { cancelAnimationFrame(predictionAnimationId); predictionAnimationId = null; } if (tmWebcam && tmWebcam.webcam && !tmWebcam.webcam.ended) { console.log("Instância TM será parada por stopWebcam, se ativa."); } resetMLUI(); }
+            function resetMLUI(){ if(microorganismsValueSpan) microorganismsValueSpan.textContent = model ? 'Pausado' : '--'; if(confidenceBarInner1 && confidencePercent1) { confidenceBarInner1.style.width = '0%'; confidencePercent1.textContent = '0%'; } microorganismsValueSpan?.classList.remove('ausente', 'presente'); const displayDivMicroorg = displayElements['microorganismos']; if (displayDivMicroorg) displayDivMicroorg.classList.remove('blinking'); alarmStates['microorganismos'] = false; }
+
+            // --- Carregar/Salvar Configurações (Inalteradas) ---
+            function loadSettings() { console.log("Carregando configs gerais, fundo, threshold e intervenção..."); try { const savedPositions = JSON.parse(localStorage.getItem('elementPositions')); document.querySelectorAll('#main-screen .draggable').forEach(el => { const defaultPos = defaultPositions[el.id]; const savedPos = savedPositions?.[el.id]; const posToApply = savedPos || defaultPos || { top: '10px', left: '10px' }; el.style.top = posToApply.top || 'auto'; el.style.left = posToApply.left || 'auto'; el.style.right = posToApply.right || 'auto'; el.style.transform = ''; }); const savedBackgrounds = localStorage.getItem('screenBackgrounds'); screenBackgrounds = savedBackgrounds ? JSON.parse(savedBackgrounds) : {}; applyBackground('main'); applyBackground('charts'); applyBackground('config'); const savedWebcamSize = localStorage.getItem('webcamDiameter'); if (savedWebcamSize) { currentDiameter = parseInt(savedWebcamSize, 10); } else { currentDiameter = 270; } updateWebcamSize(); const savedThreshold = localStorage.getItem('classificationThreshold'); if (savedThreshold !== null) { const thresholdValue = parseFloat(savedThreshold); if (!isNaN(thresholdValue) && thresholdValue >= 0 && thresholdValue <= 1) classificationThreshold = thresholdValue; } if(confidenceThresholdInput) confidenceThresholdInput.value = (classificationThreshold * 100).toFixed(0); console.log(`Limite de confiança carregado: ${classificationThreshold}`); const savedInterventionState = localStorage.getItem('interventionState'); if (savedInterventionState === 'true') { isInterventionActive = true; if (interventionButton) interventionButton.classList.add('intervention-active'); } else { isInterventionActive = false; if (interventionButton) interventionButton.classList.remove('intervention-active'); } console.log(`Estado de intervenção carregado: ${isInterventionActive}`); } catch (e) { console.error("Erro load localStorage:", e); applyDefaultPositions(); classificationThreshold = DEFAULT_CONFIDENCE_THRESHOLD; if(confidenceThresholdInput) confidenceThresholdInput.value = (classificationThreshold * 100).toFixed(0); isInterventionActive = false; if (interventionButton) interventionButton.classList.remove('intervention-active'); } }
+            function applyDefaultPositions() { console.log("Aplicando posições padrão..."); document.querySelectorAll('#main-screen .draggable').forEach(el => { const pos = defaultPositions[el.id]; if (pos) { el.style.top = pos.top || 'auto'; el.style.left = pos.left || 'auto'; el.style.right = pos.right || 'auto'; el.style.transform = ''; } else { console.warn(`Posição padrão não definida para ${el.id}, usando 10px/10px.`); el.style.top = '10px'; el.style.left = '10px'; el.style.right = 'auto'; el.style.transform = ''; } }); }
+            function saveSettings() { console.log("Salvando posições, webcam e intervenção..."); try { const positions = {}; document.querySelectorAll('#main-screen .draggable').forEach(el => { if (defaultPositions[el.id]) { positions[el.id] = { top: el.style.top, left: el.style.left, right: el.style.right }; } else { console.warn(`Elemento ${el.id} é draggable mas não está em defaultPositions, não será salvo.`); } }); localStorage.setItem('elementPositions', JSON.stringify(positions)); localStorage.setItem('webcamDiameter', currentDiameter.toString()); localStorage.setItem('interventionState', isInterventionActive.toString()); } catch (e) { console.error("Erro save pos/webcam/intervenção:", e); alert("Falha ao salvar posições/configurações."); } }
+
+            // --- Configurações e Lógica de ALARME (Inalterado) ---
+            function loadAlarmSettings() { console.log("Carregando configs de alarme..."); try { const saved = localStorage.getItem('alarmConfig'); const defaultSettings = { ph: { min: null, max: null }, temp: { min: null, max: null }, turbidez: { min: null, max: null }, oxigenio: { min: null, max: null }, tds: { min: null, max: null }, condutividade: { min: null, max: null }, dbo: { min: null, max: null }, iqa: {min: null, max: null} }; alarmSettings = saved ? JSON.parse(saved) : defaultSettings; Object.keys(defaultSettings).forEach(key => { if (!alarmSettings[key]) alarmSettings[key] = defaultSettings[key]; alarmStates[key] = false; }); alarmStates['microorganismos'] = false; Object.keys(configInputs).forEach(key => { if (configInputs[key] && configInputs[key].min) { configInputs[key].min.value = alarmSettings[key]?.min ?? ''; configInputs[key].max.value = alarmSettings[key]?.max ?? ''; } }); console.log("Configs de alarme carregadas:", alarmSettings); updateAllChartAnnotations(); } catch(e) { console.error("Erro ao carregar config. alarme", e); alarmSettings = { ph: { min: null, max: null }, temp: { min: null, max: null }, turbidez: { min: null, max: null }, oxigenio: { min: null, max: null }, tds: { min: null, max: null }, condutividade: { min: null, max: null }, dbo: { min: null, max: null }, iqa: {min: null, max: null} }; localStorage.removeItem('alarmConfig'); updateAllChartAnnotations(); } }
+            function saveAlarmSettings() { console.log("Salvando configs de alarme..."); let isValid = true; const newSettings = {}; Object.keys(configInputs).forEach(key => { if(!configInputs[key] || !configInputs[key].min) return; const minInput = configInputs[key].min; const maxInput = configInputs[key].max; const minVal = minInput.value.trim() !== '' ? parseFloat(minInput.value) : null; const maxVal = maxInput.value.trim() !== '' ? parseFloat(maxInput.value) : null; if ((minVal !== null && isNaN(minVal)) || (maxVal !== null && isNaN(maxVal))) { alert(`Valor inválido para ${key}.`); isValid = false; return; } if (minVal !== null && maxVal !== null && minVal >= maxVal) { alert(`Para ${key}, min (${minVal}) deve ser < max (${maxVal}).`); isValid = false; return; } newSettings[key] = { min: minVal, max: maxVal }; }); if (isValid) { alarmSettings = newSettings; localStorage.setItem('alarmConfig', JSON.stringify(alarmSettings)); alert("Configs de alarme salvas!"); console.log("Configs de alarme salvas:", alarmSettings); updateAllChartAnnotations(); } else { console.log("Configs de alarme não salvas."); } }
+            function loadAlarmLog() { console.log("Carregando log de alarmes..."); try {const savedLog = localStorage.getItem('alarmLog'); alarmLogMessages = savedLog ? JSON.parse(savedLog) : [];} catch(e){ console.error("Erro ao carregar log.", e); alarmLogMessages=[]; localStorage.removeItem('alarmLog');} renderAlarmLog(); }
+            function saveAlarmLog() { try { localStorage.setItem('alarmLog', JSON.stringify(alarmLogMessages)); } catch (e) { console.error("Erro ao salvar log de alarmes:", e); } }
+            function renderAlarmLog() { if (!alarmLogContainer) return; alarmLogContainer.innerHTML = ''; if (alarmLogMessages.length === 0) { alarmLogContainer.innerHTML = '<p>Nenhum alarme registrado.</p>'; } else { alarmLogMessages.forEach(message => { const logEntry = document.createElement('p'); logEntry.classList.add('alarm-message'); logEntry.textContent = message; alarmLogContainer.appendChild(logEntry); }); alarmLogContainer.scrollTop = 0; } }
+            function logAlarm(variableKey, value, settingMin, settingMax) { const timestamp = new Date().toLocaleString('pt-BR'); const variableName = displayElements[variableKey]?.querySelector('.label')?.textContent || variableKey; let valueFormatted = value?.toFixed(2) ?? 'N/A'; let limitText = `(Min: ${settingMin ?? '-'}, Max: ${settingMax ?? '-'})`; if(variableKey === 'microorganismos') { valueFormatted = `SIM (${(value*100).toFixed(0)}%)`; limitText = `(Limite: ${(settingMin*100).toFixed(0)}%)`; } else if (variableKey === 'iqa') { valueFormatted = value.toFixed(2); } const message = `ALERTA [${timestamp}]: ${variableName} ${valueFormatted} fora ${limitText}`; alarmLogMessages.unshift(message); const MAX_LOG_ENTRIES = 100; if (alarmLogMessages.length > MAX_LOG_ENTRIES) { alarmLogMessages.pop(); } saveAlarmLog(); renderAlarmLog(); console.warn(message); }
+            function clearAlarmLog() { if (confirm("Tem certeza que deseja limpar TODO o log de alarmes?")) { alarmLogMessages = []; saveAlarmLog(); renderAlarmLog(); console.log("Log de alarmes limpo."); } }
+            function checkAlarms(data) { Object.keys(data).forEach(incomingKey => { const value = data[incomingKey]; let settingsKey = incomingKey; if (incomingKey === 'pH') settingsKey = 'ph'; else if (incomingKey === 'temperatura') settingsKey = 'temp'; else if (incomingKey === 'oxigenioDissolvido') settingsKey = 'oxigenio'; else if (incomingKey === 'condutividadeEletrica') settingsKey = 'condutividade'; else if (incomingKey === 'IQA') settingsKey = 'iqa'; const settings = alarmSettings[settingsKey]; const displayDiv = displayElements[settingsKey]; if (settingsKey === 'microorganismos') return; if (!settings || !displayDiv || typeof value !== 'number' || isNaN(value)) { if (alarmStates[settingsKey]) { alarmStates[settingsKey] = false; if(displayDiv) displayDiv.classList.remove('blinking'); } return; } const min = settings.min; const max = settings.max; let isOutOfRange = (typeof min === 'number' && value < min) || (typeof max === 'number' && value > max); if (isOutOfRange) { if (!alarmStates[settingsKey]) { logAlarm(settingsKey, value, min, max); alarmStates[settingsKey] = true; } displayDiv.classList.add('blinking'); } else { if (alarmStates[settingsKey]) { alarmStates[settingsKey] = false; displayDiv.classList.remove('blinking'); } } }); }
+
+            // --- Controles (Webcam, Tamanho, Serial - Inalterados) ---
+            async function sendSerialData(data) { if (!port || !port.writable) { console.warn("Porta serial não conectada ou não gravável para envio."); alert("Erro: Porta serial não está pronta para enviar dados."); return false; } let writer; try { writer = port.writable.getWriter(); const encodedData = new TextEncoder().encode(data); await writer.write(encodedData); console.log(`Dados enviados para serial: ${data}`); return true; } catch (error) { console.error("Erro ao escrever na porta serial:", error); if (error.message.includes("locked")) { console.warn("Tentativa de escrita enquanto porta/writer estava ocupado."); alert("Erro: Porta serial ocupada. Tente novamente em breve."); } else { alert(`Erro ao enviar comando serial: ${error.message}`); } return false; } finally { if (writer) { try { writer.releaseLock(); } catch(e){ console.warn("Warn/Erro ao liberar/fechar writer no finally:", e) } } } }
+            async function startWebcam() { if (currentStream) stopWebcam(); try { currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); videoElement.srcObject = currentStream; videoElement.onloadedmetadata = async () => { try { toggleWebcamButton.innerHTML = '<i class="fas fa-video-slash"></i>Desligar Webcam'; toggleWebcamButton.classList.add('webcam-active'); videoElement.style.backgroundColor = 'transparent'; console.log("Webcam iniciada. Configurando instância TM..."); const webcamWidth = 200; const webcamHeight = 200; const flip = true; if (tmWebcam) await tmWebcam.stop(); tmWebcam = new tmImage.Webcam(webcamWidth, webcamHeight, flip); await tmWebcam.setup(); await tmWebcam.play(); console.log("Instância TM Webcam pronta."); if (model && !isPredicting) startPredictionLoop(); else console.log(`Não iniciando predição: model=${!!model}, isPredicting=${isPredicting}`); } catch (tmError) { console.error("Erro config tmImage.Webcam:", tmError); alert(`Erro TM: ${tmError.message}`); stopWebcam(); } }; videoElement.onerror = (e) => { console.error("Erro no elemento video:", e); stopWebcam(); }; } catch (err) { console.error("Erro obter stream:", err); alert(`Erro webcam: ${err.message}`); stopWebcam(); } }
+            function stopWebcam() { console.log("Executando stopWebcam..."); stopPredictionLoop(); if (tmWebcam) { try{tmWebcam.stop();} catch(e){console.warn("Erro ao parar tmWebcam:",e)}} tmWebcam = null; if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); console.log("Stream principal parado."); } videoElement.srcObject = null; currentStream = null; toggleWebcamButton.innerHTML = '<i class="fas fa-video"></i>Ligar Webcam'; toggleWebcamButton.classList.remove('webcam-active'); videoElement.style.backgroundColor = '#333'; resetMLUI(); console.log("stopWebcam finalizada."); }
+            function updateWebcamSize() { currentDiameter = Math.max(minSize, Math.min(currentDiameter, maxSize)); videoElement.style.width = `${currentDiameter}px`; videoElement.style.height = `${currentDiameter}px`; }
+            async function connectSerial() { try { port = await navigator.serial.requestPort(); await port.open({ baudRate: 115200 }); connectSerialButton.innerHTML = '<i class="fas fa-plug-circle-xmark"></i>Desconectar Serial'; connectSerialButton.classList.add('connected'); keepReading = true; lineBuffer = ''; readSerialData(); console.log('Serial conectado.'); } catch (err) { console.error('Erro serial connect:', err); port = null; resetDisplayValues(); } }
+            async function disconnectSerial() { console.log("Iniciando desconexão serial..."); keepReading = false; if (reader) { try { await reader.cancel(); reader.releaseLock(); console.log("Reader cancelado e lock liberado.");} catch(e){ console.warn("Warn ao cancelar/liberar leitor:", e);} finally { reader = null;}} if (port) { if (port.readable && port.readable.locked) { console.warn("Porta 'readable' ainda bloqueada durante disconnect."); } if (port.writable && port.writable.locked) { console.warn("Porta 'writable' ainda bloqueada durante disconnect."); } try { await port.close(); console.log("Porta serial fechada."); } catch(e){ console.error("Erro ao fechar porta:", e);} finally { port = null;}} connectSerialButton.innerHTML = '<i class="fas fa-plug-circle-bolt"></i>Conectar Serial'; connectSerialButton.classList.remove('connected'); resetDisplayValues(); lineBuffer = ''; console.log('Serial desconectado.'); }
+            async function readSerialData() { if (!port?.readable || !keepReading) { console.log("readSerialData: Porta não legível ou keepReading false."); if (port && port.readable) { console.log("Tentando desconectar pois keepReading é false..."); await disconnectSerial(); } else if (port && !port.readable) { console.log("Porta não legível, resetando estado..."); port = null; resetDisplayValues(); connectSerialButton.innerHTML = '<i class="fas fa-plug-circle-bolt"></i>Conectar Serial'; connectSerialButton.classList.remove('connected'); } else { console.log("Nenhuma ação de desconexão necessária aqui."); } return; } console.log("Iniciando leitura serial..."); try { reader = port.readable.getReader(); while (keepReading && port && port.readable) { const { value, done } = await reader.read(); if (done) { console.log("Leitor reportou done (stream fechada?)."); keepReading = false; break; } lineBuffer += new TextDecoder().decode(value); let newlineIndex; while ((newlineIndex = lineBuffer.indexOf('\n')) >= 0) { const line = lineBuffer.substring(0, newlineIndex).trim(); lineBuffer = lineBuffer.substring(newlineIndex + 1); if (line) try { const data = JSON.parse(line); updateDisplayValues(data); } catch (e) { /* console.warn('JSON parse error:', line, e); */ } } } } catch (error) { console.error('Erro leitura serial:', error); keepReading = false; } finally { if(reader) { try { reader.releaseLock(); console.log("Reader lock liberado no finally."); } catch(e) { console.warn("Warn ao liberar lock do reader no finally:", e);}} reader = null; } console.log("Leitura serial encerrada (fim do loop while)."); if (!keepReading && port && port.readable) { console.log("Loop parado por keepReading=false, desconectando..."); await disconnectSerial(); } else if (port && !port.readable) { console.log("Porta tornou-se não legível durante leitura, desconectando..."); await disconnectSerial(); } else if (!port) { console.log("Porta já é null no fim da leitura."); } }
+
+            // --- Gráficos (create, initialize, labels, colors, annotations - Inalterado) ---
+            function createChart(ctx, label, yAxisLabel, borderColor = 'rgb(75, 192, 192)') { const defaultChartOptions = { responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { type: 'time', time: { unit: 'minute', tooltipFormat: 'HH:mm:ss dd/MM/yy', displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm dd/MM', day: 'dd/MM/yy' } }, ticks: { maxTicksLimit: 8, autoSkip: true, source: 'auto', color: 'var(--medium-text)' }, grid: { color: 'rgba(0,0,0,0.05)' } }, y: { beginAtZero: false, title: { display: !!yAxisLabel, text: yAxisLabel, color: 'var(--dark-text)' }, ticks: { color: 'var(--medium-text)'}, grid: { color: 'rgba(0,0,0,0.05)' } } }, plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(0,0,0,0.7)', titleFont: { weight: 'bold'}, bodyFont: { size: 11 }, padding: 10, cornerRadius: 4 }, annotation: { annotations: { minLine: { type: 'line', mode: 'horizontal', scaleID: 'y', value: NaN, borderColor: 'var(--danger-color)', borderWidth: 1.5, borderDash: [6, 6], label: { content: 'Min', enabled: true, position: 'start', backgroundColor: 'rgba(220, 53, 69, 0.7)', color: 'white', font: { size: 9, weight: 'bold' }, padding: {x: 4, y: 2}, yAdjust: -5 }, enabled: false }, maxLine: { type: 'line', mode: 'horizontal', scaleID: 'y', value: NaN, borderColor: 'var(--danger-color)', borderWidth: 1.5, borderDash: [6, 6], label: { content: 'Max', enabled: true, position: 'end', backgroundColor: 'rgba(220, 53, 69, 0.7)', color: 'white', font: { size: 9, weight: 'bold' }, padding: {x: 4, y: 2}, yAdjust: -5 }, enabled: false } } } } }; return new Chart(ctx, { type: 'line', data: { datasets: [{ label: label, data: [], borderColor: borderColor, backgroundColor: borderColor + '33', tension: 0.2, fill: false, pointRadius: 0, pointHoverRadius: 5 }] }, options: defaultChartOptions }); }
+            function initializeCharts() { console.log("Inicializando gráficos..."); Object.keys(chartContexts).forEach(key => { if (chartContexts[key]) { const yLabel = getYAxisLabelForKey(key); charts[key] = createChart(chartContexts[key], key.toUpperCase(), yLabel, getColorForChart(key)); console.log(`Gráfico ${key} inicializado.`); } else { console.warn(`Contexto para gráfico '${key}' não encontrado.`); } }); }
+            function getYAxisLabelForKey(key) { const labels = {'ph': 'pH', 'temp': '°C', 'turbidez': 'NTU', 'oxigenio': 'mg/L', 'tds': 'ppm', 'condutividade': 'µS/cm', 'dbo': 'mg/L', 'iqa': 'IQA'}; return labels[key] || ''; }
+            function getColorForChart(key) { const colors = {'ph': 'rgb(255, 99, 132)', 'temp': 'rgb(255, 159, 64)', 'turbidez': 'rgb(160, 120, 90)', 'oxigenio': 'rgb(54, 162, 235)', 'tds': 'rgb(153, 102, 255)', 'condutividade': 'rgb(75, 192, 192)', 'dbo': 'rgb(255, 205, 86)', 'iqa': 'rgb(108, 117, 125)'}; return colors[key] || 'rgb(75, 192, 192)'; }
+            function updateChartAnnotations(chartInstance, settingsKey) { if (!chartInstance || !chartInstance.options || !alarmSettings[settingsKey]) return false; const settings = alarmSettings[settingsKey]; const annotations = chartInstance.options.plugins.annotation.annotations; let updated = false; if (annotations.minLine) { const shouldEnableMin = (typeof settings.min === 'number' && !isNaN(settings.min)); if (annotations.minLine.enabled !== shouldEnableMin || (shouldEnableMin && annotations.minLine.value !== settings.min) ) { annotations.minLine.value = settings.min; annotations.minLine.enabled = shouldEnableMin; updated = true; } } if (annotations.maxLine) { const shouldEnableMax = (typeof settings.max === 'number' && !isNaN(settings.max)); if (annotations.maxLine.enabled !== shouldEnableMax || (shouldEnableMax && annotations.maxLine.value !== settings.max)) { annotations.maxLine.value = settings.max; annotations.maxLine.enabled = shouldEnableMax; updated = true; } } return updated; }
+            function updateAllChartAnnotations() { console.log("Atualizando anotações de limite nos gráficos..."); let mainNeedsUpdate = false; Object.keys(charts).forEach(settingsKey => { if (charts[settingsKey]) { if (updateChartAnnotations(charts[settingsKey], settingsKey)) { mainNeedsUpdate = true; } } }); if (mainNeedsUpdate) { Object.values(charts).forEach(chart => { if(chart) chart.update('none'); }); } if (expandedChartInstance && expandedChartInfo.chartKey) { if(updateChartAnnotations(expandedChartInstance, expandedChartInfo.chartKey)) { expandedChartInstance.update('none'); } } }
+
+            // --- Helpers de Data/Hora (Inalterado) ---
+            function formatDateTimeLocal(date) { if (!date || !(date instanceof Date)) return ''; const year = date.getFullYear(); const month = (date.getMonth() + 1).toString().padStart(2, '0'); const day = date.getDate().toString().padStart(2, '0'); const hours = date.getHours().toString().padStart(2, '0'); const minutes = date.getMinutes().toString().padStart(2, '0'); return `${year}-${month}-${day}T${hours}:${minutes}`; }
+            function parseDateTimeLocal(dateTimeString) { try { return new Date(dateTimeString); } catch (e) { console.error("Erro ao fazer parse da data/hora:", dateTimeString, e); return null; } }
+
+            // --- Gerenciamento do Histórico (Inalterado) ---
+            function pruneHistoricalData() { const now = Date.now(); const cutoffTime = now - HISTORICAL_DATA_MAX_AGE_MS; let prunedCount = 0; Object.keys(historicalDataStore).forEach(key => { const dataArray = historicalDataStore[key]; while (dataArray.length > 0 && dataArray[0].ts < cutoffTime) { dataArray.shift(); prunedCount++; } }); }
+
+            // --- Formatação de Valor (Inalterado) ---
+            function formatValueByKey(key, value) { if (typeof value !== 'number' || isNaN(value)) return '--'; if (['ph', 'oxigenio', 'dbo', 'iqa'].includes(key)) return value.toFixed(2); if (['temp', 'turbidez'].includes(key)) return value.toFixed(1); return value.toFixed(0); }
+
+            // --- NOVO: Função para Calcular Estatísticas ---
+            function calculateStats(dataPoints) {
+                const validValues = dataPoints.map(p => p.y).filter(v => typeof v === 'number' && !isNaN(v));
+                if (validValues.length === 0) {
+                    return { min: NaN, max: NaN, avg: NaN };
+                }
+                const minVal = Math.min(...validValues);
+                const maxVal = Math.max(...validValues);
+                const sumVal = validValues.reduce((acc, val) => acc + val, 0);
+                const avgVal = sumVal / validValues.length;
+                return { min: minVal, max: maxVal, avg: avgVal };
+            }
+
+            // --- MODIFICADO: Atualização de Displays, Histórico, Gráficos e Stats (Main) ---
+             function updateDisplayValues(data) {
+                 const nowTimestamp = new Date();
+                 // 1. Atualiza Displays Principais
+                 Object.keys(valueSpans).forEach(internalKey => { if (internalKey === 'microorganismos') return; let incomingDataKey = internalKey; if (internalKey === 'ph') incomingDataKey = 'pH'; else if (internalKey === 'temp') incomingDataKey = 'temperatura'; else if (internalKey === 'oxigenio') incomingDataKey = 'oxigenioDissolvido'; else if (internalKey === 'condutividade') incomingDataKey = 'condutividadeEletrica'; else if (internalKey === 'iqa') incomingDataKey = 'IQA'; const span = valueSpans[internalKey]; const value = data[incomingDataKey]; const formattedValue = formatValueByKey(internalKey, value); if(span) span.textContent = formattedValue; else if(internalKey === 'iqa' && iqaValueSpan){ /* Tratado abaixo */ } else console.error(`ERRO: Span para '${internalKey}' não encontrado!`); });
+                 // 2. Adiciona ao Histórico
+                 Object.keys(historicalDataStore).forEach(internalKey => { let incomingDataKey = internalKey; if (internalKey === 'ph') incomingDataKey = 'pH'; else if (internalKey === 'temp') incomingDataKey = 'temperatura'; else if (internalKey === 'oxigenio') incomingDataKey = 'oxigenioDissolvido'; else if (internalKey === 'condutividade') incomingDataKey = 'condutividadeEletrica'; else if (internalKey === 'iqa') incomingDataKey = 'IQA'; const value = data[incomingDataKey]; if (typeof value === 'number' && !isNaN(value)) { historicalDataStore[internalKey].push({ ts: nowTimestamp, val: value }); } });
+                 pruneHistoricalData();
+                 // 3. Atualiza Gráficos e Stats (Main Screen)
+                 Object.keys(charts).forEach(key => {
+                     if (charts[key] && historicalDataStore[key] && chartStatElements[key]) {
+                         const fullHistory = historicalDataStore[key];
+                         const startIndex = Math.max(0, fullHistory.length - MAX_DATA_POINTS_VIEW);
+                         const viewData = fullHistory.slice(startIndex).map(item => ({ x: item.ts, y: item.val }));
+                         charts[key].data.datasets[0].data = viewData; // Atualiza dados do gráfico
+                         charts[key].update('none');
+                         const stats = calculateStats(viewData); // Calcula stats dos dados VISÍVEIS
+                         const statElems = chartStatElements[key]; // Atualiza stats na tela de gráficos
+                         if (statElems.min) statElems.min.textContent = formatValueByKey(key, stats.min);
+                         if (statElems.max) statElems.max.textContent = formatValueByKey(key, stats.max);
+                         if (statElems.avg) statElems.avg.textContent = formatValueByKey(key, stats.avg);
+                     }
+                 });
+                 // 4. Atualiza Classificação IQA
+                 if (iqaClassificationSpan && displayIQA && typeof data.IQA === 'number' && !isNaN(data.IQA)) { const iqaValue = data.IQA; let classification = '--'; let classificationClass = ''; if (iqaValue >= 91) { classification = 'Ótima'; classificationClass = 'iqa-otima'; } else if (iqaValue >= 71) { classification = 'Boa'; classificationClass = 'iqa-boa'; } else if (iqaValue >= 51) { classification = 'Aceitável'; classificationClass = 'iqa-aceitavel'; } else if (iqaValue >= 26) { classification = 'Ruim'; classificationClass = 'iqa-ruim'; } else if (iqaValue >= 0) { classification = 'Péssima'; classificationClass = 'iqa-pessima'; } iqaClassificationSpan.textContent = classification; displayIQA.className = 'data-display draggable'; if (classificationClass) displayIQA.classList.add(classificationClass); if (alarmStates['iqa']) displayIQA.classList.add('blinking'); } else if (iqaClassificationSpan && displayIQA) { iqaClassificationSpan.textContent = '--'; displayIQA.className = 'data-display draggable'; if (alarmStates['iqa']) displayIQA.classList.add('blinking'); }
+                 // 5. Verifica Alarmes
+                 checkAlarms(data);
+             }
+
+            // --- Resetar Displays e Estatísticas (Inalterado) ---
+            function resetDisplayValues() { Object.keys(valueSpans).forEach(key => { if (valueSpans[key] && key !== 'microorganismos') { valueSpans[key].textContent = '--'; } }); if(iqaClassificationSpan) iqaClassificationSpan.textContent = '--'; if(displayIQA) displayIQA.className = 'data-display draggable'; Object.values(charts).forEach(chart => { if (chart?.data) { chart.data.datasets.forEach(ds => ds.data = []); chart.update(); } }); Object.keys(chartStatElements).forEach(key => { const statElems = chartStatElements[key]; if (statElems) { if (statElems.min) statElems.min.textContent = '--'; if (statElems.max) statElems.max.textContent = '--'; if (statElems.avg) statElems.avg.textContent = '--'; } }); Object.keys(alarmStates).forEach(settingsKey => { if(settingsKey !== 'microorganismos'){ alarmStates[settingsKey] = false; const displayDiv = displayElements[settingsKey]; if (displayDiv) displayDiv.classList.remove('blinking'); } }); resetMLUI(); console.log("Displays, gráficos, stats e estados de alarme resetados."); }
+
+            // --- Lógica de Arrastar e Soltar (Inalterada) ---
+            function enableDragMode() { isDragModeEnabled = true; toggleDragModeButton.innerHTML = '<i class="fas fa-save"></i>Salvar Posições'; toggleDragModeButton.classList.add('active'); document.querySelectorAll('#main-screen .draggable').forEach(el => { el.style.cursor = 'move'; el.addEventListener('mousedown', onMouseDown); }); console.log("Drag mode ON"); }
+            function disableDragMode() { isDragModeEnabled = false; toggleDragModeButton.innerHTML = '<i class="fas fa-arrows-up-down-left-right"></i>Habilitar Mover'; toggleDragModeButton.classList.remove('active'); document.querySelectorAll('#main-screen .draggable').forEach(el => { el.style.cursor = 'grab'; el.removeEventListener('mousedown', onMouseDown); }); document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); if (draggedElement) { draggedElement.classList.remove('dragging'); draggedElement = null; } console.log("Drag mode OFF"); saveSettings(); }
+            function onMouseDown(event) { if (event.button !== 0 || !isDragModeEnabled) return; event.preventDefault(); draggedElement = event.currentTarget; draggedElement.classList.add('dragging'); const rect = draggedElement.getBoundingClientRect(); offsetX = event.clientX - rect.left; offsetY = event.clientY - rect.top; document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp); }
+            function onMouseMove(event) { if (!draggedElement) return; let newX = event.clientX - offsetX; let newY = event.clientY - offsetY; const parentRect = mainScreen.getBoundingClientRect(); const maxX = mainScreen.scrollWidth - draggedElement.offsetWidth; const maxY = mainScreen.scrollHeight - draggedElement.offsetHeight; newX = Math.max(0, Math.min(newX, maxX)); newY = Math.max(0, Math.min(newY, maxY)); draggedElement.style.left = `${newX}px`; draggedElement.style.top = `${newY}px`; draggedElement.style.right = 'auto'; draggedElement.style.transform = ''; }
+            function onMouseUp(event) { if (event.button !== 0 || !draggedElement) return; draggedElement.classList.remove('dragging'); draggedElement = null; document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); }
+
+            // --- Menus de Fundo (Inalterado) ---
+            const colorList = [ '#FF6347', '#FF4500', '#FFD700', '#ADFF2F', '#32CD32', '#00FA9A', '#00CED1', '#1E90FF', '#4169E1', '#8A2BE2','#9400D3', '#FF00FF', '#FF1493', '#FF69B4', '#FFE4E1', '#FFFACD', '#F5FFFA', '#F0FFFF', '#F0F8FF', '#E6E6FA','#DCDCDC', '#A9A9A9', '#778899', '#2F4F4F', '#000000', '#FFFFFF', '#FFDAB9', '#F0E68C', '#B0E0E6', '#FFA07A'];
+            function setupBackgroundMenu(screenKey) { const menuWrapper = document.getElementById(`bg-menu-${screenKey}`); if (!menuWrapper) { console.warn(`Menu wrapper bg-menu-${screenKey} not found.`); return; } const title = menuWrapper.querySelector('.bgMenuTitle'); const colorContainer = document.getElementById(`colorOptionsContainer-${screenKey}`); const uploadInput = document.getElementById(`bgImageUpload-${screenKey}`); const uploadLabel = menuWrapper.querySelector('.upload-button'); if (!title || !colorContainer || !uploadInput || !uploadLabel) { console.error(`Missing elements inside bg-menu-${screenKey}`); return; } colorContainer.innerHTML = ''; colorList.forEach(color => { const swatch = document.createElement('div'); swatch.className = 'color-swatch'; swatch.style.backgroundColor = color; swatch.title = `Mudar fundo para ${color}`; swatch.addEventListener('click', () => setBackground(screenKey, { color: color })); colorContainer.appendChild(swatch); }); uploadInput.addEventListener('change', (event) => { const file = event.target.files[0]; if (file && file.type.startsWith('image/')) { const reader = new FileReader(); reader.onload = (e) => setBackground(screenKey, { image: `url('${e.target.result}')` }); reader.readAsDataURL(file); } else if (file) { alert("Arquivo inválido. Selecione uma imagem."); uploadInput.value = ''; } }); title.addEventListener('click', () => menuWrapper.classList.toggle('collapsed')); console.log(`Background menu setup complete for: ${screenKey}`); }
+            function setBackground(screenKey, backgroundData) { screenBackgrounds[screenKey] = backgroundData; applyBackground(screenKey); try { localStorage.setItem('screenBackgrounds', JSON.stringify(screenBackgrounds)); } catch (e) { console.error("Erro ao salvar fundos:", e); } }
+            function applyBackground(screenKey) { const screenElement = screens[screenKey]; const bgData = screenBackgrounds[screenKey]; if (!screenElement) return; const defaultColors = { main: 'var(--screen-bg-main)', charts: 'var(--screen-bg-charts)', config: 'var(--screen-bg-config)' }; if (bgData?.image) { screenElement.style.backgroundImage = bgData.image; screenElement.style.backgroundColor = 'transparent'; screenElement.style.backgroundSize = 'cover'; screenElement.style.backgroundPosition = 'center'; screenElement.style.backgroundRepeat = 'no-repeat'; } else if (bgData?.color) { screenElement.style.backgroundColor = bgData.color; screenElement.style.backgroundImage = 'none'; } else { screenElement.style.backgroundColor = `var(--screen-bg-${screenKey})`; screenElement.style.backgroundImage = 'none'; } }
+
+            // --- Navegação entre Telas (Inalterado) ---
+            function showScreen(screenToShow) { if (!screenToShow) return; Object.values(screens).forEach(s => {if(s) s.style.display = 'none'}); screenToShow.style.display = 'block'; if (screenToShow === chartScreen) { Object.values(charts).forEach(chart => { if(chart) chart.resize(); }); } console.log(`Exibindo tela: ${screenToShow.id}`); }
+
+            // --- NOVO: Função para Atualizar Estatísticas no Fullscreen ---
+            function updateFullscreenStats(stats, chartKey) {
+                if(fsMinStat) fsMinStat.textContent = formatValueByKey(chartKey, stats.min);
+                if(fsMaxStat) fsMaxStat.textContent = formatValueByKey(chartKey, stats.max);
+                if(fsAvgStat) fsAvgStat.textContent = formatValueByKey(chartKey, stats.avg);
+            }
+
+            // --- MODIFICADO: Zoom/Expansão do Gráfico (Chama updateExpandedChartRange para stats iniciais) ---
+             function expandChart(chartKey) {
+                 const mainChart = charts[chartKey];
+                 if (!mainChart) { console.error(`Gráfico principal ${chartKey} não encontrado.`); return; }
+                 console.log(`Expandindo gráfico: ${chartKey}`);
+                 expandedChartInfo.chartKey = chartKey;
+                 try {
+                     if (expandedChartInstance) { expandedChartInstance.destroy(); expandedChartInstance = null; }
+                     const expandedCanvas = document.createElement('canvas'); expandedCanvas.id = 'expanded-chart-canvas-' + chartKey;
+                     const expandedCtx = expandedCanvas.getContext('2d');
+                     const yAxisLabel = getYAxisLabelForKey(chartKey); const borderColor = getColorForChart(chartKey);
+                     const newExpandedConfig = { type: 'line', data: { datasets: [{ label: mainChart.data.datasets[0].label, data: [], borderColor: borderColor, backgroundColor: borderColor + '33', tension: 0.1, fill: false, pointRadius: 3, pointHoverRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', axis: 'x', intersect: false }, scales: { x: { type: 'time', time: { unit: 'minute', tooltipFormat: 'HH:mm:ss dd/MM/yy', displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm dd/MM', day: 'dd/MM/yy' } }, ticks: { maxTicksLimit: 15, autoSkip: true, source: 'auto', color: 'var(--medium-text)' }, grid: { color: 'rgba(0,0,0,0.08)' } }, y: { beginAtZero: false, title: { display: !!yAxisLabel, text: yAxisLabel, color: 'var(--dark-text)' }, ticks: { color: 'var(--medium-text)' }, grid: { color: 'rgba(0,0,0,0.08)' } } }, plugins: { legend: { display: false }, tooltip: { enabled: true, backgroundColor: 'rgba(0,0,0,0.75)', titleFont: { weight: 'bold'}, bodyFont: { size: 12 }, padding: 12, cornerRadius: 4 }, annotation: JSON.parse(JSON.stringify(mainChart.options.plugins.annotation)) } } };
+                     expandedChartInstance = new Chart(expandedCtx, newExpandedConfig);
+                     const originalTitleElement = mainChart.canvas.closest('.chart-container')?.querySelector('h3');
+                     fullscreenChartTitle.textContent = originalTitleElement ? originalTitleElement.textContent : chartKey.toUpperCase();
+                     const existingCanvas = fullscreenChartContainer.querySelector('canvas'); if(existingCanvas) existingCanvas.remove();
+                     // Adiciona o canvas DEPOIS dos controles e stats
+                     fullscreenChartContainer.appendChild(expandedCanvas);
+                     const history = historicalDataStore[chartKey] || [];
+                     let minDate = new Date(), maxDate = new Date();
+                     if (history.length > 0) { minDate = new Date(history[0].ts); maxDate = new Date(history[history.length - 1].ts); }
+                     const minDateStr = formatDateTimeLocal(minDate); const maxDateStr = formatDateTimeLocal(maxDate);
+                     dateStartInput.min = minDateStr; dateStartInput.max = maxDateStr; dateEndInput.min = minDateStr; dateEndInput.max = maxDateStr;
+                     let initialStartDate = new Date(maxDate.getTime() - HISTORICAL_DATA_MAX_AGE_MS); if (initialStartDate < minDate) initialStartDate = minDate;
+                     dateStartInput.value = formatDateTimeLocal(initialStartDate); dateEndInput.value = maxDateStr;
+                     updateExpandedChartRange(chartKey); // Calcula dados iniciais E STATS
+                     fullscreenOverlay.classList.add('show-controls'); fullscreenOverlay.style.display = 'block'; closeFullscreenButton.style.display = 'block';
+                     requestAnimationFrame(() => { if (expandedChartInstance) { expandedChartInstance.resize(); } });
+                     closeFullscreenButton.focus();
+                     const newApplyButton = applyDateRangeButton.cloneNode(true); applyDateRangeButton.parentNode.replaceChild(newApplyButton, applyDateRangeButton); applyDateRangeButton = newApplyButton;
+                     applyDateRangeButton.addEventListener('click', () => { if (expandedChartInfo.chartKey) { updateExpandedChartRange(expandedChartInfo.chartKey); } else { console.error("Tentativa de aplicar filtro sem chartKey definido."); } });
+                     updateAllChartAnnotations();
+                 } catch (error) { console.error("Erro CRÍTICO em expandChart:", error); alert("Ocorreu um erro grave ao tentar expandir o gráfico. Verifique o console."); if (expandedChartInstance) { expandedChartInstance.destroy(); expandedChartInstance = null; } fullscreenOverlay.style.display = 'none'; closeFullscreenButton.style.display = 'none'; fullscreenOverlay.classList.remove('show-controls'); }
+             }
+
+            // --- MODIFICADO: Atualização do Range Expandido (Calcula e atualiza stats do overlay) ---
+            function updateExpandedChartRange(chartKey) {
+                 console.log(`Iniciando updateExpandedChartRange para: ${chartKey}`);
+                 if (!expandedChartInstance) { console.error("Erro: Instância do gráfico expandido é nula."); return; }
+                 if (!chartKey || !historicalDataStore[chartKey]) { console.warn(`Dados históricos não encontrados para ${chartKey}. Limpando gráfico.`); expandedChartInstance.data.datasets[0].data = []; expandedChartInstance.update(); updateFullscreenStats({ min: NaN, max: NaN, avg: NaN }, chartKey); /* Limpa stats */ return; }
+                 const startDate = parseDateTimeLocal(dateStartInput.value); const endDate = parseDateTimeLocal(dateEndInput.value);
+                 if (!startDate || !endDate) { alert("Por favor, selecione datas de início e fim válidas."); return; }
+                 if (endDate < startDate) { alert("A data/hora final deve ser posterior à data/hora inicial."); return; }
+                 console.log(`Filtrando ${chartKey} de ${startDate.toISOString()} até ${endDate.toISOString()}`);
+                 try {
+                     const filteredData = historicalDataStore[chartKey]
+                         .filter(item => item.ts >= startDate && item.ts <= endDate)
+                         .map(item => ({ x: item.ts, y: item.val }));
+                     console.log(`Encontrados ${filteredData.length} pontos.`);
+
+                     // Calcula e atualiza stats ANTES de atualizar o gráfico
+                     const stats = calculateStats(filteredData);
+                     updateFullscreenStats(stats, chartKey);
+
+                     // Atualiza dados do gráfico
+                     expandedChartInstance.data.datasets[0].data = filteredData;
+                     const timeDiffHours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+                     let newUnit = 'minute'; if (timeDiffHours > 72) newUnit = 'day'; else if (timeDiffHours > 12) newUnit = 'hour'; else if (timeDiffHours < 0.5) newUnit = 'second';
+                     if (expandedChartInstance.options.scales.x.time.unit !== newUnit) { expandedChartInstance.options.scales.x.time.unit = newUnit; console.log(`Unidade do eixo X ajustada para: ${newUnit}`); }
+                     expandedChartInstance.update();
+                     console.log("Gráfico expandido e stats atualizados com sucesso.");
+                 } catch (error) { console.error(`Erro DENTRO do try em updateExpandedChartRange para ${chartKey}:`, error); alert("Ocorreu um erro ao aplicar o filtro de data."); }
+             }
+
+            // --- MODIFICADO: Fechar Gráfico Expandido (Limpa stats do overlay) ---
+            function closeExpandedChart() {
+                 console.log("Tentando fechar gráfico expandido...");
+                 if (!expandedChartInstance && fullscreenOverlay.style.display !== 'block') { console.log("Gráfico já fechado."); return; }
+                 fullscreenOverlay.classList.remove('show-controls'); fullscreenOverlay.style.display = 'none'; closeFullscreenButton.style.display = 'none';
+                 if (expandedChartInstance) { expandedChartInstance.destroy(); expandedChartInstance = null; }
+                 const existingCanvas = fullscreenChartContainer.querySelector('canvas'); if(existingCanvas) existingCanvas.remove();
+                 // Limpa stats do overlay
+                 updateFullscreenStats({ min: NaN, max: NaN, avg: NaN }, expandedChartInfo.chartKey);
+                 expandedChartInfo = { chartKey: null };
+                 console.log("Gráfico expandido fechado e stats limpas.");
+             }
+
+
+            // --- Funções Gerar PDF / Salvar CSV (Inalterado) ---
+             async function generatePdfReport() { console.log("Iniciando geração do relatório PDF..."); if (!generatePdfButton) return; const originalHtml = generatePdfButton.innerHTML; generatePdfButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Gerando PDF...'; generatePdfButton.classList.add('generating'); generatePdfButton.disabled = true; if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') { console.error("jsPDF não está disponível!"); alert("Erro: A biblioteca jsPDF não foi carregada. Recarregue a página."); generatePdfButton.innerHTML = originalHtml; generatePdfButton.classList.remove('generating'); generatePdfButton.disabled = false; return; } const { jsPDF } = window.jspdf; const doc = new jsPDF('p', 'mm', 'a4'); const pageHeight = doc.internal.pageSize.getHeight(); const pageWidth = doc.internal.pageSize.getWidth(); const margin = 15; let yPosition = margin; try { const now = new Date(); const timestamp = now.toLocaleString('pt-BR'); doc.setFontSize(18); doc.text('Relatório de Monitoramento', pageWidth / 2, yPosition, { align: 'center' }); yPosition += 10; doc.setFontSize(12); doc.text(`Gerado em: ${timestamp}`, pageWidth / 2, yPosition, { align: 'center' }); yPosition += 15; doc.setFontSize(14); doc.text('Gráficos Atuais (Últimos 5 min)', margin, yPosition); yPosition += 8; const chartEntries = Object.entries(charts).filter(([key, chart]) => chart && chart.canvas); if (chartEntries.length === 0) { doc.setFontSize(10); doc.text("Nenhum gráfico disponível para incluir no relatório.", margin, yPosition); yPosition += 10; } else { for (const [key, chart] of chartEntries) { const chartContainer = chart.canvas.closest('.chart-container'); const chartTitleElement = chartContainer?.querySelector('h3'); const chartTitle = chartTitleElement ? chartTitleElement.textContent : key.toUpperCase(); const statsElement = chartContainer?.querySelector('.chart-stats'); let statsText = ''; if (statsElement) { const min = statsElement.querySelector(`#${key}-min-stat`)?.textContent ?? ''; const max = statsElement.querySelector(`#${key}-max-stat`)?.textContent ?? ''; const avg = statsElement.querySelector(`#${key}-avg-stat`)?.textContent ?? ''; statsText = ` (Min: ${min}, Max: ${max}, Média: ${avg})`; } let imgData; try { imgData = chart.toBase64Image('image/png', 1.0); } catch (e) { console.warn(`Erro ao converter gráfico ${key} para imagem:`, e); if (yPosition + 10 > pageHeight - margin) { doc.addPage(); yPosition = margin; } doc.setFontSize(9); doc.setTextColor(150); doc.text(`[Erro ao gerar imagem do gráfico: ${chartTitle}]`, margin, yPosition); doc.setTextColor(0); yPosition += 5; continue; } const imgProps= doc.getImageProperties(imgData); const imgWidthMm = pageWidth - 2 * margin; const imgHeightMm = (imgProps.height * imgWidthMm) / imgProps.width; if (yPosition + imgHeightMm + 10 + (statsText ? 5 : 0) > pageHeight - margin) { doc.addPage(); yPosition = margin; doc.setFontSize(14); doc.text('Gráficos Atuais (cont.)', margin, yPosition); yPosition += 8; } doc.setFontSize(10); doc.text(chartTitle, margin, yPosition); yPosition += 4; doc.addImage(imgData, 'PNG', margin, yPosition, imgWidthMm, imgHeightMm); yPosition += imgHeightMm + 2; if (statsText) { doc.setFontSize(8); doc.setTextColor(80); doc.text(statsText, margin, yPosition); doc.setTextColor(0); yPosition += 5; } else { yPosition += 3; } } } if (yPosition + 15 > pageHeight - margin) { doc.addPage(); yPosition = margin; } else { yPosition += 10; } doc.setFontSize(14); doc.text('Log de Alarmes', margin, yPosition); yPosition += 8; doc.setFontSize(9); if (alarmLogMessages.length === 0) { doc.text("Nenhum alarme registrado no período.", margin, yPosition); yPosition += 5; } else { const logToPrint = [...alarmLogMessages]; for (const message of logToPrint) { const lines = doc.splitTextToSize(message, pageWidth - 2 * margin); const neededHeight = lines.length * 3.5; if (yPosition + neededHeight > pageHeight - margin) { doc.addPage(); yPosition = margin; doc.setFontSize(14); doc.text('Log de Alarmes (cont.)', margin, yPosition); yPosition += 8; doc.setFontSize(9); } doc.text(lines, margin, yPosition); yPosition += neededHeight + 1.5; } } const filename = `relatorio_monitor_${now.toISOString().split('T')[0]}_${now.getHours()}${now.getMinutes()}.pdf`; doc.save(filename); console.log(`Relatório PDF "${filename}" pronto.`); } catch (error) { console.error("Erro durante a geração do PDF:", error); alert("Erro ao gerar o relatório PDF. Verifique o console."); } finally { generatePdfButton.innerHTML = originalHtml; generatePdfButton.classList.remove('generating'); generatePdfButton.disabled = false; } }
+            function saveDataToExcel() { console.log("Iniciando exportação de TODO o histórico para CSV..."); if (!saveExcelButton) return; const originalHtml = saveExcelButton.innerHTML; saveExcelButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Salvando...'; saveExcelButton.classList.add('saving'); saveExcelButton.disabled = true; try { const variableKeys = Object.keys(historicalDataStore); const referenceKey = variableKeys.find(k => historicalDataStore[k]?.length > 0); if (!referenceKey) { alert("Não há dados históricos para salvar."); saveExcelButton.innerHTML = originalHtml; saveExcelButton.classList.remove('saving'); saveExcelButton.disabled = false; return; } const headers = ['Timestamp', 'pH', 'Temperatura', 'Turbidez', 'Oxigenio Dissolvido', 'TDS', 'Condutividade', 'DBO', 'IQA']; const headerMap = {'ph': 'pH', 'temp': 'Temperatura', 'turbidez': 'Turbidez', 'oxigenio': 'Oxigenio Dissolvido', 'tds': 'TDS', 'condutividade': 'Condutividade', 'dbo': 'DBO', 'iqa': 'IQA'}; const orderedKeys = Object.keys(headerMap); let csvContent = "\uFEFF"; csvContent += headers.join(',') + '\r\n'; const dataByTimestamp = {}; variableKeys.forEach(key => { historicalDataStore[key].forEach(point => { const tsKey = point.ts.getTime(); if (!dataByTimestamp[tsKey]) { dataByTimestamp[tsKey] = { ts: point.ts }; } dataByTimestamp[tsKey][key] = point.val; }); }); const sortedTimestamps = Object.keys(dataByTimestamp).sort((a, b) => a - b); sortedTimestamps.forEach(tsKey => { const dataPoint = dataByTimestamp[tsKey]; let row = []; const timestampObj = dataPoint.ts; const timestampStr = timestampObj ? `"${timestampObj.toLocaleString('pt-BR').replace(/"/g, '""')}"` : ''; row.push(timestampStr); orderedKeys.forEach(key => { const value = dataPoint[key]; const valueStr = (typeof value === 'number' && !isNaN(value)) ? value.toString().replace('.', ',') : ''; row.push(valueStr); }); csvContent += row.join(',') + '\r\n'; }); const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const now = new Date(); const filename = `dados_historico_monitor_${now.toISOString().split('T')[0]}_${now.getHours()}${now.getMinutes()}.csv`; link.setAttribute("download", filename); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); console.log(`Histórico completo salvo em "${filename}".`); } catch (error) { console.error("Erro ao gerar CSV do histórico:", error); alert("Ocorreu um erro ao salvar o histórico em formato CSV. Verifique o console."); } finally { saveExcelButton.innerHTML = originalHtml; saveExcelButton.classList.remove('saving'); saveExcelButton.disabled = false; } }
+
+            // --- Inicialização e Event Listeners (Inalterados) ---
+            console.log("Iniciando Setup...");
+            initializeCharts();
+            setupBackgroundMenu('main');
+            setupBackgroundMenu('charts');
+            setupBackgroundMenu('config');
+            loadSettings();
+            loadAlarmSettings();
+            loadAlarmLog();
+            loadModel();
+            if (toggleWebcamButton) toggleWebcamButton.addEventListener('click', () => { if (currentStream) stopWebcam(); else startWebcam(); });
+            if (connectSerialButton) connectSerialButton.addEventListener('click', () => { if (port && keepReading) disconnectSerial(); else connectSerial(); });
+            if (increaseSizeButton) increaseSizeButton.addEventListener('click', () => { currentDiameter += sizeStep; updateWebcamSize(); });
+            if (decreaseSizeButton) decreaseSizeButton.addEventListener('click', () => { currentDiameter -= sizeStep; updateWebcamSize(); });
+            if (toggleDragModeButton) toggleDragModeButton.addEventListener('click', () => { if (isDragModeEnabled) disableDragMode(); else enableDragMode(); });
+            if (goToChartsButton) goToChartsButton.addEventListener('click', () => showScreen(chartScreen));
+            if (goToConfigButton) goToConfigButton.addEventListener('click', () => showScreen(configAlarmScreen));
+            if (generatePdfButton) generatePdfButton.addEventListener('click', generatePdfReport);
+            if (saveExcelButton) saveExcelButton.addEventListener('click', saveDataToExcel);
+            if (interventionButton) { interventionButton.addEventListener('click', async () => { if (!isInterventionActive) { if (confirm("Deseja realmente interromper a captação de agua?")) { const success = await sendSerialData('L'); if (success) { isInterventionActive = true; interventionButton.classList.add('intervention-active'); localStorage.setItem('interventionState', 'true'); console.log("Intervenção ATIVADA"); } else { console.error("Falha ao enviar comando 'L'."); } } else { console.log("Ativação da intervenção cancelada."); } } else { const success = await sendSerialData('D'); if (success) { isInterventionActive = false; interventionButton.classList.remove('intervention-active'); localStorage.setItem('interventionState', 'false'); console.log("Intervenção DESATIVADA"); } else { console.error("Falha ao enviar comando 'D'."); } } }); } else { console.error("Botão de Intervenção não encontrado!"); }
+            if (goToMainButtonCharts) goToMainButtonCharts.addEventListener('click', () => showScreen(mainScreen));
+            if (goToMainButtonConfig) goToMainButtonConfig.addEventListener('click', () => showScreen(mainScreen));
+            if (saveAlarmSettingsButton) saveAlarmSettingsButton.addEventListener('click', saveAlarmSettings);
+            if (clearAlarmsButton) clearAlarmsButton.addEventListener('click', clearAlarmLog);
+            if (saveThresholdButton) saveThresholdButton.addEventListener('click', () => { const inputValPercent = parseFloat(confidenceThresholdInput.value); if (!isNaN(inputValPercent) && inputValPercent >= 1 && inputValPercent <= 100) { classificationThreshold = inputValPercent / 100.0; try { localStorage.setItem('classificationThreshold', classificationThreshold.toString()); alert(`Limite salvo: ${(classificationThreshold * 100).toFixed(0)}%`); console.log(`Limite salvo: ${classificationThreshold}`); } catch (e) { console.error("Erro ao salvar threshold:", e); alert("Erro ao salvar."); } } else { alert("Insira um valor entre 1 e 100."); if(confidenceThresholdInput) confidenceThresholdInput.value = (classificationThreshold * 100).toFixed(0); } });
+            document.querySelectorAll('#chart-screen .chart-container').forEach(container => { container.addEventListener('dblclick', (event) => { const chartKey = event.currentTarget.dataset.chartKey; if (chartKey) { console.log(`Double click detectado para ${chartKey}`); expandChart(chartKey); } else { console.error("Container do gráfico sem 'data-chart-key'."); } }); });
+            if (closeFullscreenButton) closeFullscreenButton.addEventListener('click', closeExpandedChart);
+            document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && fullscreenOverlay.style.display === 'block') { console.log("Tecla ESC pressionada, fechando gráfico."); closeExpandedChart(); } });
+             if (!('serial' in navigator)) { alert('Web Serial API não suportada neste navegador.'); if(connectSerialButton) { connectSerialButton.disabled = true; connectSerialButton.innerHTML = '<i class="fas fa-ban"></i>Serial Indisponível'; connectSerialButton.style.cursor = 'not-allowed'; connectSerialButton.style.opacity = '0.7'; } if(interventionButton) { interventionButton.disabled = true; interventionButton.style.cursor = 'not-allowed'; interventionButton.style.opacity = '0.7'; interventionButton.title = "Web Serial API não suportada"; } }
+            console.log("Setup Completo. Aguardando eventos...");
+            window.addEventListener('beforeunload', (event) => { console.log("beforeunload: Tentando parar webcam e serial..."); stopWebcam(); if (port && keepReading) { console.warn("Tentando desconectar serial em beforeunload (pode não completar)."); port.close().catch(e => console.error("Erro ao fechar porta em beforeunload:", e)); port = null; keepReading = false; } });
+        });
+    </script>
+
+</body>
+</html>
